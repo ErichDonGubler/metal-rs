@@ -1,8 +1,7 @@
 use core_graphics_types::{base::CGFloat, geometry::CGSize};
 use std::{
     collections::BTreeMap,
-    ffi::c_void,
-    mem::{size_of, transmute},
+    mem::{size_of_val, transmute},
     ops::Index,
     sync::{Arc, Condvar, Mutex},
 };
@@ -86,7 +85,7 @@ impl Renderer {
 
         let buffer_data = [0u8; UNIFORM_BUFFER_SIZE as usize];
         let uniform_buffer = device.new_buffer_with_data(
-            buffer_data.as_ptr() as *const c_void,
+            buffer_data.as_ptr().cast(),
             UNIFORM_BUFFER_SIZE,
             get_managed_buffer_storage_mode(),
         );
@@ -107,15 +106,15 @@ impl Renderer {
             let resource_buffer_begin_index = resources_stride * geometry_index;
             let resources = geometry.get_resources();
 
-            for argument_index in 0..resources.len() {
+            for (argument_index, resource) in resources.iter().enumerate() {
                 let resource_buffer_index = resource_buffer_begin_index + argument_index;
-                let resource = resources[argument_index].clone();
+                let resource = resource.clone();
                 resource_buffer_data[resource_buffer_index] =
                     if resource.conforms_to_protocol::<MTLBuffer>().unwrap() {
-                        let buffer = unsafe { Buffer::from_ptr(transmute(resource.into_ptr())) };
+                        let buffer = unsafe { Buffer::from_ptr(resource.into_ptr().cast()) };
                         buffer.gpu_address()
                     } else if resource.conforms_to_protocol::<MTLTexture>().unwrap() {
-                        let texture = unsafe { Texture::from_ptr(transmute(resource.into_ptr())) };
+                        let texture = unsafe { Texture::from_ptr(resource.into_ptr().cast()) };
                         texture.gpu_resource_id()._impl
                     } else {
                         panic!("Unexpected resource!")
@@ -123,8 +122,8 @@ impl Renderer {
             }
         }
         let resource_buffer = device.new_buffer_with_data(
-            resource_buffer_data.as_ptr() as *const c_void,
-            (resource_buffer_data.len() * size_of::<u64>()) as NSUInteger,
+            resource_buffer_data.as_ptr().cast(),
+            size_of_val(resource_buffer_data.as_slice()) as NSUInteger,
             get_managed_buffer_storage_mode(),
         );
         resource_buffer.set_label("resource buffer");
@@ -152,8 +151,7 @@ impl Renderer {
             MTLAccelerationStructureInstanceDescriptor::default();
             scene.geometry_instances.len()
         ];
-        for instance_index in 0..scene.geometry_instances.len() {
-            let instance = scene.geometry_instances[instance_index].as_ref();
+        for (instance_index, instance) in scene.geometry_instances.iter().enumerate() {
             let geometry_index = instance.index_in_scene;
             instance_descriptors[instance_index].acceleration_structure_index =
                 geometry_index as u32;
@@ -173,9 +171,8 @@ impl Renderer {
             }
         }
         let instance_buffer = device.new_buffer_with_data(
-            instance_descriptors.as_ptr() as *const c_void,
-            (size_of::<MTLAccelerationStructureInstanceDescriptor>()
-                * scene.geometry_instances.len()) as NSUInteger,
+            instance_descriptors.as_ptr().cast(),
+            size_of_val(instance_descriptors.as_slice()) as NSUInteger,
             get_managed_buffer_storage_mode(),
         );
         instance_buffer.set_label("instance buffer");
@@ -307,7 +304,7 @@ impl Renderer {
         self.random_texture.replace_region(
             MTLRegion::new_2d(0, 0, size.width as NSUInteger, size.height as NSUInteger),
             0,
-            random_values.as_ptr() as *const c_void,
+            random_values.as_ptr().cast(),
             size_of::<u32>() as NSUInteger * size.width as NSUInteger,
         );
         self.frame_index = 0;
@@ -317,8 +314,9 @@ impl Renderer {
         self.uniform_buffer_offset = ALIGNED_UNIFORMS_SIZE * self.uniform_buffer_index;
 
         let uniforms = unsafe {
-            &mut *((self.uniform_buffer.contents() as *mut u8)
-                .add(self.uniform_buffer_offset as usize) as *mut Uniforms)
+            &mut *((self.uniform_buffer.contents().cast::<u8>())
+                .add(self.uniform_buffer_offset as usize)
+                .cast::<Uniforms>())
         };
 
         let position = self.scene.camera.position;
@@ -475,21 +473,13 @@ impl Renderer {
         let constants = FunctionConstantValues::new();
         let resources_stride = resources_stride * size_of::<u64>() as u32;
         constants.set_constant_value_at_index(
-            &resources_stride as *const u32 as *const c_void,
+            std::ptr::from_ref(&resources_stride).cast(),
             MTLDataType::UInt,
             0,
         );
         let v = true;
-        constants.set_constant_value_at_index(
-            &v as *const bool as *const c_void,
-            MTLDataType::Bool,
-            1,
-        );
-        constants.set_constant_value_at_index(
-            &v as *const bool as *const c_void,
-            MTLDataType::Bool,
-            2,
-        );
+        constants.set_constant_value_at_index(std::ptr::from_ref(&v).cast(), MTLDataType::Bool, 1);
+        constants.set_constant_value_at_index(std::ptr::from_ref(&v).cast(), MTLDataType::Bool, 2);
         library.get_function(name, Some(constants)).unwrap()
     }
 

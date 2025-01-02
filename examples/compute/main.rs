@@ -68,7 +68,7 @@ fn main() {
         let mut gpu_end = 0;
         device.sample_timestamps(&mut cpu_end, &mut gpu_end);
 
-        let ptr = sum.contents() as *mut u32;
+        let ptr = sum.contents().cast::<u32>();
         println!("Compute shader sum: {}", unsafe { *ptr });
 
         unsafe {
@@ -133,7 +133,7 @@ fn handle_timestamps(
 ) {
     let samples = unsafe {
         std::slice::from_raw_parts(
-            resolved_sample_buffer.contents() as *const u64,
+            resolved_sample_buffer.contents().cast::<u64>(),
             NUM_SAMPLES as usize,
         )
     };
@@ -170,16 +170,16 @@ fn create_input_and_output_buffers(
     let data = vec![1u32; num_elements as usize];
 
     let buffer = device.new_buffer_with_data(
-        unsafe { std::mem::transmute(data.as_ptr()) },
-        (data.len() * std::mem::size_of::<u32>()) as u64,
+        data.as_ptr().cast(),
+        size_of_val(data.as_slice()) as u64,
         MTLResourceOptions::CPUCacheModeDefaultCache,
     );
 
     let sum = {
         let data = [0u32];
         device.new_buffer_with_data(
-            unsafe { std::mem::transmute(data.as_ptr()) },
-            (data.len() * std::mem::size_of::<u32>()) as u64,
+            data.as_ptr().cast(),
+            size_of_val(data.as_slice()) as u64,
             MTLResourceOptions::CPUCacheModeDefaultCache,
         )
     };

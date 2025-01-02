@@ -67,7 +67,7 @@ impl NSRange {
 fn nsstring_as_str(nsstr: &objc::runtime::Object) -> &str {
     let bytes = unsafe {
         let bytes: *const std::os::raw::c_char = msg_send![nsstr, UTF8String];
-        bytes as *const u8
+        bytes.cast::<u8>()
     };
     let len: NSUInteger = unsafe { msg_send![nsstr, length] };
     unsafe {
@@ -80,7 +80,7 @@ fn nsstring_from_str(string: &str) -> *mut objc::runtime::Object {
     const UTF8_ENCODING: usize = 4;
 
     let cls = class!(NSString);
-    let bytes = string.as_ptr() as *const c_void;
+    let bytes = string.as_ptr().cast::<c_void>();
     unsafe {
         let obj: *mut objc::runtime::Object = msg_send![cls, alloc];
         let obj: *mut objc::runtime::Object = msg_send![
@@ -153,13 +153,13 @@ macro_rules! foreign_obj_type {
 
             #[inline]
             fn deref(&self) -> &Self::Target {
-                unsafe { &*(self as *const Self as *const Self::Target)  }
+                unsafe { &*std::ptr::from_ref(self).cast() }
             }
         }
 
         impl ::std::convert::From<$owned_ident> for $parent_ident {
             fn from(item: $owned_ident) -> Self {
-                unsafe { Self::from_ptr(::std::mem::transmute(item.into_ptr())) }
+                unsafe { Self::from_ptr(item.into_ptr().cast()) }
             }
         }
     };
@@ -360,7 +360,7 @@ where
 
     #[inline]
     fn deref(&self) -> &ArrayRef<T> {
-        unsafe { mem::transmute(self.as_ptr()) }
+        unsafe { &*self.as_ptr().cast() }
     }
 }
 
@@ -370,7 +370,7 @@ where
     T::Ref: objc::Message + 'static,
 {
     fn borrow(&self) -> &ArrayRef<T> {
-        unsafe { mem::transmute(self.as_ptr()) }
+        unsafe { &*self.as_ptr().cast() }
     }
 }
 
@@ -610,12 +610,12 @@ pub use {
 
 #[inline]
 unsafe fn obj_drop<T>(p: *mut T) {
-    msg_send![(p as *mut Object), release]
+    msg_send![(p.cast::<Object>()), release]
 }
 
 #[inline]
 unsafe fn obj_clone<T: 'static>(p: *mut T) -> *mut T {
-    msg_send![(p as *mut Object), retain]
+    msg_send![(p.cast::<Object>()), retain]
 }
 
 #[allow(non_camel_case_types)]

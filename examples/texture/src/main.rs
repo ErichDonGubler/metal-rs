@@ -1,7 +1,6 @@
 //! Renders a textured quad to a window and adjusts the GPU buffer that contains the viewport's
 //! height and width whenever the window is resized.
 
-use std::mem;
 use std::path::PathBuf;
 
 use cocoa::{appkit::NSView, base::id as cocoa_id};
@@ -40,8 +39,8 @@ fn main() {
 
     let vertex_data = vertices();
     let vertex_buffer = device.new_buffer_with_data(
-        vertex_data.as_ptr() as *const _,
-        (vertex_data.len() * std::mem::size_of::<TexturedVertex>()) as u64,
+        vertex_data.as_ptr().cast(),
+        size_of_val(vertex_data.as_slice()) as u64,
         MTLResourceOptions::CPUCacheModeDefaultCache | MTLResourceOptions::StorageModeManaged,
     );
 
@@ -115,8 +114,8 @@ fn textured_vertex(position: [f32; 2], texture_coord: [f32; 2]) -> TexturedVerte
         // So, we transmute the 2 floats into a u64 so that when the shader receives
         // these 64 bits they'll be interpreted as a `vector_float2`.
         TexturedVertex {
-            position: std::mem::transmute(position),
-            texture_coord: std::mem::transmute(texture_coord),
+            position: std::mem::transmute::<[f32; 2], u64>(position),
+            texture_coord: std::mem::transmute::<[f32; 2], u64>(texture_coord),
         }
     }
 }
@@ -173,7 +172,7 @@ fn init_window(event_loop: &EventLoop<()>) -> Window {
 }
 
 fn get_window_layer(window: &Window, device: &Device) -> MetalLayer {
-    let layer = MetalLayer::new();
+    let mut layer = MetalLayer::new();
 
     layer.set_device(device);
     layer.set_pixel_format(PIXEL_FORMAT);
@@ -191,7 +190,7 @@ fn get_window_layer(window: &Window, device: &Device) -> MetalLayer {
         if let Ok(RawWindowHandle::AppKit(rw)) = window.window_handle().map(|wh| wh.as_raw()) {
             let view = rw.ns_view.as_ptr() as cocoa_id;
             view.setWantsLayer(YES);
-            view.setLayer(mem::transmute(layer.as_ref()));
+            view.setLayer(std::ptr::from_mut(layer.as_mut()).cast());
         }
     }
 
@@ -225,10 +224,10 @@ fn prepare_pipeline_state(device: &Device, library: &Library) -> RenderPipelineS
 fn update_viewport_size_buffer(viewport_size_buffer: &Buffer, size: (u32, u32)) {
     let contents = viewport_size_buffer.contents();
     let viewport_size: [u32; 2] = [size.0, size.1];
-    let byte_count = (viewport_size.len() * std::mem::size_of::<u32>()) as usize;
+    let byte_count = viewport_size.len() * std::mem::size_of::<u32>();
 
     unsafe {
-        std::ptr::copy(viewport_size.as_ptr(), contents as *mut u32, byte_count);
+        std::ptr::copy(viewport_size.as_ptr(), contents.cast(), byte_count);
     }
     viewport_size_buffer.did_modify_range(metal::NSRange::new(0, byte_count as u64));
 }
@@ -247,12 +246,12 @@ fn redraw(
     };
 
     let render_pass_descriptor = RenderPassDescriptor::new();
-    prepare_render_pass_descriptor(&render_pass_descriptor, drawable.texture());
+    prepare_render_pass_descriptor(render_pass_descriptor, drawable.texture());
 
     let command_buffer = command_queue.new_command_buffer();
 
-    let encoder = command_buffer.new_render_command_encoder(&render_pass_descriptor);
-    encoder.set_render_pipeline_state(&pipeline_state);
+    let encoder = command_buffer.new_render_command_encoder(render_pass_descriptor);
+    encoder.set_render_pipeline_state(pipeline_state);
 
     encoder.set_vertex_buffer(VerticesBufferIdx as u64, Some(vertex_buffer), 0);
     encoder.set_vertex_buffer(ViewportSizeBufferIdx as u64, Some(viewport_size_buffer), 0);
@@ -261,7 +260,7 @@ fn redraw(
     encoder.draw_primitives(MTLPrimitiveType::Triangle, 0, 6);
     encoder.end_encoding();
 
-    command_buffer.present_drawable(&drawable);
+    command_buffer.present_drawable(drawable);
     command_buffer.commit();
 }
 
