@@ -1,6 +1,5 @@
 use std::{
     collections::BTreeMap,
-    mem::transmute,
     ops::Index,
     sync::{Arc, Condvar, Mutex},
 };
